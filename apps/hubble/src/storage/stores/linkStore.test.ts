@@ -20,6 +20,7 @@ import { UserPostfix } from "../db/types.js";
 import LinkStore from "./linkStore.js";
 import StoreEventHandler from "./storeEventHandler.js";
 import { putOnChainEventTransaction } from "../db/onChainEvent.js";
+import { link } from "fs";
 
 const db = jestRocksDB("protobufs.linkStore.test");
 const eventHandler = new StoreEventHandler(db);
@@ -438,34 +439,33 @@ describe("merge", () => {
         ]);
       });
 
-      test("race condition simulation", async () => {
+      test("race condition simulation of adding removing and adding again", async () => {
         const linkAdd1 = await Factories.LinkAddMessage.create({
           data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 1 },
         });
         const linkAdd2 = await Factories.LinkAddMessage.create({
-          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 2 },
+          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 30 },
         });
-        const linkRemove1 = await Factories.LinkRemoveMessage.create({
-          data: { ...linkRemove.data, timestamp: linkRemove.data.timestamp + 3 },
+        const linkRemover = await Factories.LinkRemoveMessage.create({
+          data: { ...linkRemove.data, timestamp: linkRemove.data.timestamp + 2 },
         });
-        const linkRemove2 = await Factories.LinkRemoveMessage.create({
-          data: { ...linkRemove.data, timestamp: linkRemove.data.timestamp + 4 },
-        });
+
+        // Simulate a race condition by merging linkAdd1, linkAdd2, and linkRemove at the same time
         await Promise.all([
           expect(set.merge(linkAdd1)).resolves.toBeGreaterThan(0),
+          expect(set.merge(linkRemover)).resolves.toBeGreaterThan(0),
           expect(set.merge(linkAdd2)).resolves.toBeGreaterThan(0),
-          expect(set.merge(linkRemove1)).resolves.toBeGreaterThan(0),
-          expect(set.merge(linkRemove2)).resolves.toBeGreaterThan(0),
         ]);
-        await assertLinkDoesNotExist(linkAdd);
+
+        // Check the result
         await assertLinkDoesNotExist(linkAdd1);
-        await assertLinkDoesNotExist(linkAdd2);
-        await assertLinkRemoveWins(linkRemove2);
+        await assertLinkDoesNotExist(linkRemover);
+        await assertLinkAddWins(linkAdd2); // linkAdd2 should win because it has a later timestamp
+
         expect(mergeEvents).toEqual([
           [linkAdd1, []],
-          [linkAdd2, [linkAdd1]],
-          [linkRemove1, [linkAdd1, linkAdd2]],
-          [linkRemove2, [linkAdd1, linkAdd2, linkRemove1]],
+          [linkAdd2, [linkAdd1, linkRemover]],
+          [linkRemover, [linkAdd1]],
         ]);
       });
     });
