@@ -416,6 +416,58 @@ describe("merge", () => {
         await assertLinkDoesNotExist(linkAdd);
         await assertLinkAddWins(linkAddLater);
       });
+
+      test("race condition simulation", async () => {
+        const linkAdd1 = await Factories.LinkAddMessage.create({
+          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 1 },
+        });
+        const linkAdd2 = await Factories.LinkAddMessage.create({
+          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 2 },
+        });
+
+        await Promise.all([
+          expect(set.merge(linkAdd1)).resolves.toBeGreaterThan(0),
+          expect(set.merge(linkAdd2)).resolves.toBeGreaterThan(0),
+        ]);
+        await assertLinkDoesNotExist(linkAdd);
+        await assertLinkAddWins(linkAdd2);
+
+        expect(mergeEvents).toEqual([
+          [linkAdd1, []],
+          [linkAdd2, [linkAdd1]],
+        ]);
+      });
+
+      test("race condition simulation", async () => {
+        const linkAdd1 = await Factories.LinkAddMessage.create({
+          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 1 },
+        });
+        const linkAdd2 = await Factories.LinkAddMessage.create({
+          data: { ...linkAdd.data, timestamp: linkAdd.data.timestamp + 2 },
+        });
+        const linkRemove1 = await Factories.LinkRemoveMessage.create({
+          data: { ...linkRemove.data, timestamp: linkRemove.data.timestamp + 3 },
+        });
+        const linkRemove2 = await Factories.LinkRemoveMessage.create({
+          data: { ...linkRemove.data, timestamp: linkRemove.data.timestamp + 4 },
+        });
+        await Promise.all([
+          expect(set.merge(linkAdd1)).resolves.toBeGreaterThan(0),
+          expect(set.merge(linkAdd2)).resolves.toBeGreaterThan(0),
+          expect(set.merge(linkRemove1)).resolves.toBeGreaterThan(0),
+          expect(set.merge(linkRemove2)).resolves.toBeGreaterThan(0),
+        ]);
+        await assertLinkDoesNotExist(linkAdd);
+        await assertLinkDoesNotExist(linkAdd1);
+        await assertLinkDoesNotExist(linkAdd2);
+        await assertLinkRemoveWins(linkRemove2);
+        expect(mergeEvents).toEqual([
+          [linkAdd1, []],
+          [linkAdd2, [linkAdd1]],
+          [linkRemove1, [linkAdd1, linkAdd2]],
+          [linkRemove2, [linkAdd1, linkAdd2, linkRemove1]],
+        ]);
+      });
     });
 
     describe("with a conflicting LinkAdd with identical timestamps", () => {
